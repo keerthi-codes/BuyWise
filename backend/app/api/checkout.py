@@ -10,15 +10,18 @@ Routes:
 
 import logging
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from backend.app.core.database import get_db
+from backend.app.core.auth import get_current_user, get_current_user_optional
+from backend.app.models.user import User
 from backend.app.schemas.checkout import (
     CheckoutOrderCreate,
     PaymentOrderResponse,
     PaymentOrderListResponse,
     RetailerRedirectResponse,
+    PersonalAnalyticsResponse,
 )
 from backend.app.services.checkout_service import (
     CheckoutService,
@@ -29,12 +32,16 @@ from backend.app.services.checkout_service import (
     OfferOutOfStockError,
     ExternalRetailerCheckoutError,
     MandatePolicyViolationError,
+    BudgetOverrideRequiredError,
     UnsupportedCurrencyError,
     OrderExpiredError,
     OrderOwnershipError,
+    MissingGuestProofError,
+    InvalidGuestProofError,
     InvalidOrderStateError,
     DuplicateCaptureError,
     CaptureReconciliationRequiredError,
+    OrderNotApprovedError,
 )
 from backend.app.services.paypal_client import (
     PayPalError,
@@ -69,11 +76,29 @@ router = APIRouter(prefix="/api/checkout", tags=["Checkout & Payments"])
 )
 def create_checkout(
     payload: CheckoutOrderCreate,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> PaymentOrderResponse:
-    """Create a new payment order and return PayPal approval link."""
+    """Create a new payment order and return PayPal approval link. Requires authenticated user."""
     try:
-        return CheckoutService.create_checkout_order(db=db, request=payload)
+        effective_token = x_guest_session_token or payload.session_token
+        return CheckoutService.create_checkout_order(
+            db=db,
+            request=payload,
+            user_id=current_user.id,
+            guest_session_token=effective_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
     except ExternalRetailerCheckoutError as exc:
         logger.info("External retailer checkout rejected from demo gateway: %s", exc)
         raise HTTPException(
@@ -87,6 +112,21 @@ def create_checkout(
                 "price": str(exc.price),
                 "currency": exc.currency,
                 "requires_external_checkout": True,
+            },
+        )
+    except BudgetOverrideRequiredError as exc:
+        logger.warning("Checkout blocked pending user budget override confirmation: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "budget_override_required",
+                "message": "Purchase exceeds preferred spending mandate budget. Explicit user confirmation is required to proceed.",
+                "requires_override_confirmation": True,
+                "reasons": exc.reasons,
+                "exceeded_amount": exc.exceeded_amount,
+                "currency": exc.currency,
+                "preferred_budget": exc.preferred_budget,
+                "order_total": exc.order_total,
             },
         )
     except MandatePolicyViolationError as exc:
@@ -150,12 +190,25 @@ def create_checkout(
 def capture_order(
     order_id: str,
     session_id: Annotated[str, Query(description="Active ShoppingSession UUID owning the order")],
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> PaymentOrderResponse:
     """Capture an approved payment order."""
     try:
-        return CheckoutService.capture_checkout_order(db=db, order_id=order_id, session_id=session_id)
-    except OrderOwnershipError as exc:
+        return CheckoutService.capture_checkout_order(
+            db=db,
+            order_id=order_id,
+            session_id=session_id,
+            user_id=current_user.id if current_user else None,
+            guest_session_token=x_guest_session_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
@@ -179,6 +232,16 @@ def capture_order(
         raise HTTPException(
             status_code=status.HTTP_202_ACCEPTED,
             detail=str(exc),
+        )
+    except OrderNotApprovedError as exc:
+        logger.warning("Capture attempted before buyer approval for order %s: %s", order_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "order_not_approved",
+                "message": str(exc),
+                "order_id": order_id,
+            },
         )
     except (CaptureAmountMismatchError, CaptureCurrencyMismatchError, UnverifiedCaptureError, PaymentVerificationError) as exc:
         logger.error("Capture verification failed for order %s: %s", order_id, exc)
@@ -208,6 +271,46 @@ def capture_order(
         )
 
 
+@router.post(
+    "/orders/{order_id}/cancel",
+    response_model=PaymentOrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel Pending Checkout Order",
+    description="Explicitly marks an uncaptured payment order as CANCELLED upon buyer cancellation.",
+)
+def cancel_order(
+    order_id: str,
+    session_id: Annotated[str, Query(description="Active ShoppingSession UUID owning the order")],
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> PaymentOrderResponse:
+    """Cancel a pending payment order."""
+    try:
+        return CheckoutService.cancel_checkout_order(
+            db=db,
+            order_id=order_id,
+            session_id=session_id,
+            user_id=current_user.id if current_user else None,
+            guest_session_token=x_guest_session_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+    except InvalidOrderStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+
 @router.get(
     "/orders/{order_id}",
     response_model=PaymentOrderResponse,
@@ -217,12 +320,64 @@ def capture_order(
 def get_order_status(
     order_id: str,
     session_id: Annotated[str, Query(description="Active ShoppingSession UUID owning the order")],
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> PaymentOrderResponse:
     """Fetch order status by order ID."""
     try:
-        return CheckoutService.get_order_status(db=db, order_id=order_id, session_id=session_id)
-    except OrderOwnershipError as exc:
+        return CheckoutService.get_order_status(
+            db=db,
+            order_id=order_id,
+            session_id=session_id,
+            user_id=current_user.id if current_user else None,
+            guest_session_token=x_guest_session_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+    except InvalidOrderStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+
+
+@router.get(
+    "/orders/by-paypal-id/{paypal_order_id}",
+    response_model=PaymentOrderResponse,
+    summary="Lookup Payment Order by PayPal Order ID Token",
+    description="Retrieve local payment order matching the PayPal order ID / approval token.",
+)
+def get_order_by_paypal_id(
+    paypal_order_id: str,
+    session_id: Annotated[str, Query(description="Active ShoppingSession UUID owning the order")],
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> PaymentOrderResponse:
+    """Fetch order status by PayPal order ID token."""
+    try:
+        return CheckoutService.get_order_by_paypal_id(
+            db=db,
+            paypal_order_id=paypal_order_id,
+            session_id=session_id,
+            user_id=current_user.id if current_user else None,
+            guest_session_token=x_guest_session_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
@@ -244,12 +399,60 @@ def get_payment_history(
     session_id: str,
     page: Annotated[int, Query(ge=1, description="Page number")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="Items per page (max 100)")] = 20,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> PaymentOrderListResponse:
     """Retrieve session payment order history."""
-    return CheckoutService.get_session_payment_history(
-        db=db,
-        session_id=session_id,
-        page=page,
-        page_size=page_size,
-    )
+    try:
+        return CheckoutService.get_session_payment_history(
+            db=db,
+            session_id=session_id,
+            page=page,
+            page_size=page_size,
+            user_id=current_user.id if current_user else None,
+            guest_session_token=x_guest_session_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+
+
+@router.get(
+    "/analytics/{session_id}",
+    response_model=PersonalAnalyticsResponse,
+    summary="Retrieve Personal Shopping Analytics",
+    description="Retrieve personal shopping analytics, spending totals by currency, category/retailer breakdowns, and mandate utilization for a guest session.",
+)
+def get_personal_analytics(
+    session_id: str,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> PersonalAnalyticsResponse:
+    """Fetch authoritative personal shopping analytics for a guest shopping session."""
+    try:
+        return CheckoutService.get_session_analytics(
+            db=db,
+            session_id=session_id,
+            user_id=current_user.id if current_user else None,
+            guest_session_token=x_guest_session_token,
+        )
+    except MissingGuestProofError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    except (InvalidGuestProofError, OrderOwnershipError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+

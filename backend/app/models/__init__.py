@@ -3,11 +3,16 @@ AI-Powered Multilingual Shopping Intelligence Platform
 Domain Models Package.
 """
 
+from backend.app.models.user import (
+    User,
+    RevokedToken,
+)
 from backend.app.models.shopping import (
     Product,
     RetailerOffer,
     ShoppingSession,
     SpendingMandate,
+    PriceSnapshot,
 )
 from backend.app.models.payment import (
     PaymentOrder,
@@ -23,10 +28,13 @@ from backend.app.models.payment import (
 )
 
 __all__ = [
+    "User",
+    "RevokedToken",
     "Product",
     "RetailerOffer",
     "ShoppingSession",
     "SpendingMandate",
+    "PriceSnapshot",
     "PaymentOrder",
     "OrderItem",
     "PaymentCapture",

@@ -46,9 +46,28 @@
       
       <!-- Brand Logo -->
       <a href="#home" class="flex items-center gap-2.5 group">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-burnt-orange to-amber-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-burnt-orange/20 group-hover:scale-105 transition-transform">
-          B
-        </div>
+        <svg width="36" height="36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" class="group-hover:scale-105 transition-transform shrink-0">
+          <defs>
+            <linearGradient id="bw-header-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#F59E0B" />
+              <stop offset="45%" stop-color="#E88A38" />
+              <stop offset="100%" stop-color="#D97706" />
+            </linearGradient>
+            <linearGradient id="bw-header-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35" />
+              <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+            </linearGradient>
+            <filter id="bw-header-shadow" x="-10%" y="-10%" width="130%" height="130%">
+              <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#E88A38" flood-opacity="0.35"/>
+            </filter>
+          </defs>
+          <rect x="6" y="6" width="88" height="88" rx="24" fill="url(#bw-header-grad)" filter="url(#bw-header-shadow)"/>
+          <rect x="7" y="7" width="86" height="86" rx="23" stroke="url(#bw-header-glow)" stroke-width="2" fill="none"/>
+          <path d="M30 26 H54 C63 26 70 31.5 70 39.5 C70 45 66 48.5 61 50 C67.5 51.5 72 56 72 62.5 C72 71.5 64 77 54 77 H30 V26 Z" fill="white" />
+          <path d="M42 36 H52 C56 36 59 38 59 41.5 C59 45 56 47 52 47 H42 V36 Z" fill="#E88A38" />
+          <path d="M42 55 H53 C57.5 55 61 57.5 61 61.5 C61 65.5 57.5 68 53 68 H42 V55 Z" fill="#D97706" />
+          <circle cx="70" cy="50" r="3" fill="#F8F6F0" />
+        </svg>
         <div class="flex flex-col">
           <span class="font-heading font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
             BUYWISE <span class="text-xs px-1.5 py-0.5 rounded bg-burnt-orange/15 text-burnt-orange font-mono font-bold">AI</span>
@@ -67,13 +86,16 @@
         <a href="#orders" class="nav-link px-3.5 py-2 rounded-lg transition-colors text-slate-400 hover:text-white border border-transparent">Orders</a>
       </nav>
 
-      <!-- Right Header Actions (Health Pill, Session ID Badge, Mobile Toggle) -->
-      <div class="flex items-center gap-3">
+      <!-- Right Header Actions (Health Pill, Auth Slot, Session ID Badge, Mobile Toggle) -->
+      <div class="flex items-center gap-2.5">
         <!-- Live System Status Pill -->
         <div id="system-health-pill" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-400">
           <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span>
           <span>Checking...</span>
         </div>
+
+        <!-- Authentication Navigation Slot (Sign In / Register / User Avatar & Logout) -->
+        <div id="auth-nav-slot" class="flex items-center"></div>
 
         <!-- Guest Session Identifier Badge -->
         <button
@@ -106,6 +128,7 @@
       <a href="#compare" class="block px-3 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:bg-slate-900">Product Comparison</a>
       <a href="#mandate" class="block px-3 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:bg-slate-900">Spending Mandate</a>
       <a href="#orders" class="block px-3 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:bg-slate-900">Purchase History</a>
+      <div id="mobile-auth-nav-slot" class="pt-2 border-t border-slate-800/80"></div>
     </div>
   </header>
 
@@ -119,11 +142,7 @@
     <!-- ------------------------------------------------------------------- -->
     <section id="section-home" class="page-section">
       <!-- Hero Header -->
-      <div class="relative py-12 md:py-20 text-center max-w-4xl mx-auto">
-        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-burnt-orange/10 border border-burnt-orange/20 text-burnt-orange text-xs font-semibold mb-6">
-          <span>⚡</span>
-          <span>AI-Powered Multi-Retailer Product Intelligence</span>
-        </div>
+      <div class="relative py-10 md:py-16 text-center max-w-4xl mx-auto">
         <h1 class="text-3xl sm:text-5xl md:text-6xl font-heading font-extrabold text-white tracking-tight leading-tight">
           Discover smarter.<br class="hidden sm:inline" />
           Compare deeper.<br class="hidden sm:inline" />
@@ -213,6 +232,44 @@
         </div>
       </div>
 
+<!-- Personal Shopping Analytics Dashboard Section -->
+      <div id="home-analytics-section" class="mt-8 py-8 border-t border-slate-800/80">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-burnt-orange/15 text-burnt-orange border border-burnt-orange/30">
+                <span class="w-1.5 h-1.5 rounded-full bg-burnt-orange animate-pulse"></span> Personal Dashboard
+              </span>
+              <span class="text-xs text-slate-500 font-mono">Authoritative Settlement</span>
+            </div>
+            <h2 class="text-lg font-heading font-bold text-white">Shopping Analytics &amp; Spending Trends</h2>
+            <p class="text-xs text-slate-400">Authoritative settled metrics, monthly trends, and mandate utilization scoped to your guest session.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              id="btn-refresh-analytics"
+              class="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 shadow-sm"
+              title="Refresh spending analytics"
+            >
+              <svg class="w-3.5 h-3.5 text-burnt-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span>Refresh</span>
+            </button>
+            <a
+              href="#orders"
+              class="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-burnt-orange hover:text-burnt-orange/90 transition-colors"
+            >
+              Purchase Receipts →
+            </a>
+          </div>
+        </div>
+
+        <!-- Dynamic Analytics Container -->
+        <div id="home-analytics-container">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
       <!-- Featured Real Catalog Products -->
       <div class="mt-8 py-8 border-t border-slate-800/80">
         <div class="flex items-center justify-between mb-6">
@@ -227,44 +284,6 @@
         </div>
       </div>
 
-      <!-- Core Principle / Architecture Cards -->
-      <div class="mt-8 py-8 border-t border-slate-800/80">
-        <h2 class="text-lg font-heading font-bold text-white text-center mb-2">Our Operating Architecture</h2>
-        <p class="text-xs text-slate-400 text-center max-w-lg mx-auto mb-8">
-          Built on a non-negotiable security boundary designed to protect buyers from automated overspending.
-        </p>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800">
-            <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold text-sm mb-3">1</div>
-            <h3 class="text-sm font-bold text-white mb-1">AI Suggests</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              Extracts intent, requirements, and hardware specs from natural language. AI guides discovery but possesses zero financial authority.
-            </p>
-          </div>
-          <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800">
-            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm mb-3">2</div>
-            <h3 class="text-sm font-bold text-white mb-1">Backend Validates</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              A deterministic policy engine authoritatively verifies budget limits, price ceilings, and stock availability before checkout can proceed.
-            </p>
-          </div>
-          <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800">
-            <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-sm mb-3">3</div>
-            <h3 class="text-sm font-bold text-white mb-1">User Approves</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              Transparent item breakdowns, currency matching, and explicit buyer confirmation ensure complete user control over every purchase.
-            </p>
-          </div>
-          <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800">
-            <div class="w-8 h-8 rounded-lg bg-burnt-orange/10 text-burnt-orange flex items-center justify-center font-bold text-sm mb-3">4</div>
-            <h3 class="text-sm font-bold text-white mb-1">PayPal Processes</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              Orders v2 Sandbox checkout with stable request IDs, decoupled database transactions, and authoritative capture verification.
-            </p>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- ------------------------------------------------------------------- -->
@@ -272,9 +291,24 @@
     <!-- ------------------------------------------------------------------- -->
     <section id="section-explore" class="page-section hidden">
       <!-- Explore Header -->
-      <div class="mb-6">
-        <h1 class="text-2xl font-heading font-extrabold text-white">Product Catalog & Discovery</h1>
-        <p class="text-xs text-slate-400">Search stored products, filter by taxonomy, and compare multi-retailer price offers.</p>
+      <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-heading font-extrabold text-white">Product Catalog &amp; Discovery</h1>
+          <p class="text-xs text-slate-400">Search stored products, filter by taxonomy, and discover varied multi-retailer selections.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            id="btn-refresh-discovery"
+            class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 text-xs font-semibold text-slate-200 hover:text-white transition-all flex items-center gap-2 shadow-sm shrink-0"
+            title="Shuffle and discover varied products from the catalogue"
+          >
+            <svg class="w-3.5 h-3.5 text-burnt-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span id="refresh-discovery-text">Refresh Discovery</span>
+          </button>
+        </div>
       </div>
 
       <!-- Filter Controls Toolbar -->
@@ -310,8 +344,8 @@
           <!-- Populated dynamically via JS -->
         </div>
 
-        <!-- Facets Row (Brand, Min/Max Price, Source) -->
-        <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-800/60">
+        <!-- Facets Row (Brand, Min/Max Price, Source, Sort Mode) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2 border-t border-slate-800/60">
           <div>
             <label for="explore-brand-filter" class="block text-[11px] font-semibold text-slate-400 mb-1">Manufacturer Brand</label>
             <input
@@ -350,6 +384,18 @@
               <option value="All">All Sources</option>
               <option value="synthetic">Synthetic Demo Only</option>
               <option value="channel3">Live Channel3 Only</option>
+            </select>
+          </div>
+          <div>
+            <label for="explore-order-filter" class="block text-[11px] font-semibold text-slate-400 mb-1">Discovery / Sort</label>
+            <select
+              id="explore-order-filter"
+              class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-burnt-orange"
+            >
+              <option value="random" selected>Dynamic Discovery (Varied)</option>
+              <option value="name">Alphabetical (A-Z)</option>
+              <option value="price_asc">Price: Low to High</option>
+              <option value="price_desc">Price: High to Low</option>
             </select>
           </div>
         </div>
@@ -459,7 +505,7 @@
                 >
                   <option value="USD">USD ($)</option>
                   <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
+                  <option value="GBP">GBP (Â£)</option>
                   <option value="INR">INR (₹)</option>
                 </select>
               </div>
@@ -625,6 +671,20 @@
       </div>
     </section>
 
+    <!-- ------------------------------------------------------------------- -->
+    <!-- SECTION 7: LOGIN PAGE (SPLIT-SCREEN) -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="section-login" class="page-section hidden">
+      <!-- Injected dynamically via renderLoginPage() -->
+    </section>
+
+    <!-- ------------------------------------------------------------------- -->
+    <!-- SECTION 8: REGISTRATION PAGE (SPLIT-SCREEN) -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="section-register" class="page-section hidden">
+      <!-- Injected dynamically via renderRegisterPage() -->
+    </section>
+
   </main>
 
   <!-- ===================================================================== -->
@@ -654,7 +714,7 @@
         class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
         title="Clear comparison list"
       >
-        ✕
+        ✖
       </button>
     </div>
   </aside>

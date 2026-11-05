@@ -7,13 +7,35 @@
 export const CONFIG = {
   APP_NAME: "BUYWISE AI",
   TAGLINE: "Discover smarter. Compare deeper. Spend responsibly.",
-  API_BASE: "http://127.0.0.1:8000", // Same-origin relative path
+  _apiBase: null,
+  get API_BASE() {
+    if (this._apiBase !== null) return this._apiBase;
+    if (typeof window !== "undefined" && window.location) {
+      // When served on port 8000, use same-origin relative path
+      if (window.location.port === "8000") {
+        return "";
+      }
+      // When served on port 5500 (Live Server) or others, match hostname (localhost or 127.0.0.1)
+      if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+        return `${window.location.protocol}//${window.location.hostname}:8000`;
+      }
+    }
+    return "http://127.0.0.1:8000";
+  },
+  set API_BASE(val) {
+    this._apiBase = val;
+  },
   DEFAULT_CURRENCY: "USD",
   MAX_COMPARE_ITEMS: 4,
   STORAGE_KEYS: {
     SESSION_ID: "buywise_guest_session_id",
     SESSION_IDENTIFIER: "buywise_guest_session_identifier",
+    SESSION_TOKEN: "buywise_guest_session_token",
+    AUTH_TOKEN: "buywise_auth_token",
+    AUTH_USER: "buywise_auth_user",
     COMPARE_IDS: "buywise_compare_ids",
+    GUEST_ACTIVE: "buywise_guest_active",
+    PENDING_CHECKOUT: "buywise_pending_checkout",
   },
   CATEGORIES: [
     "All",
@@ -69,11 +91,150 @@ export function setSessionId(sessionId) {
 }
 
 /**
+ * Retrieve the guest session proof-of-possession token.
+ */
+export function getGuestSessionToken() {
+  return localStorage.getItem(CONFIG.STORAGE_KEYS.SESSION_TOKEN) || null;
+}
+
+/**
+ * Persist the guest session proof-of-possession token.
+ */
+export function setGuestSessionToken(token) {
+  if (token) {
+    localStorage.setItem(CONFIG.STORAGE_KEYS.SESSION_TOKEN, token);
+  } else {
+    localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_TOKEN);
+  }
+}
+
+/**
+ * Retrieve the authenticated user's JWT access token.
+ */
+export function getAuthToken() {
+  return localStorage.getItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN) || null;
+}
+
+/**
+ * Persist the authenticated user's JWT access token.
+ */
+export function setAuthToken(token) {
+  if (token) {
+    localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN, token);
+  } else {
+    localStorage.removeItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN);
+  }
+}
+
+/**
+ * Retrieve the cached authenticated user profile.
+ */
+export function getAuthUser() {
+  try {
+    const raw = localStorage.getItem(CONFIG.STORAGE_KEYS.AUTH_USER);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist the authenticated user profile.
+ */
+export function setAuthUser(user) {
+  if (user) {
+    localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_USER, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(CONFIG.STORAGE_KEYS.AUTH_USER);
+  }
+}
+
+/**
+ * Clear all authentication tokens and cached user profiles upon logout or expiration.
+ */
+export function clearAuth() {
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.AUTH_USER);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_TOKEN);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.GUEST_ACTIVE);
+  if (!getPendingCheckout()) {
+    localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_ID);
+    localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_IDENTIFIER);
+  }
+}
+
+/**
+ * Clear guest session state and tokens.
+ */
+export function clearGuestSession() {
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_ID);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_IDENTIFIER);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_TOKEN);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.GUEST_ACTIVE);
+}
+
+/**
+ * Check whether a user is currently authenticated with a local token.
+ */
+/**
+ * Check whether guest browsing mode is currently active.
+ */
+export function isGuestActive() {
+  return localStorage.getItem(CONFIG.STORAGE_KEYS.GUEST_ACTIVE) === "true";
+}
+
+/**
+ * Set or clear active guest browsing flag.
+ */
+export function setGuestActive(active) {
+  if (active) {
+    localStorage.setItem(CONFIG.STORAGE_KEYS.GUEST_ACTIVE, "true");
+  } else {
+    localStorage.removeItem(CONFIG.STORAGE_KEYS.GUEST_ACTIVE);
+  }
+}
+
+/**
+ * Retrieve pending checkout context saved before authentication.
+ */
+export function getPendingCheckout() {
+  try {
+    const raw = sessionStorage.getItem(CONFIG.STORAGE_KEYS.PENDING_CHECKOUT);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist pending checkout context across authentication redirects.
+ */
+export function setPendingCheckout(data) {
+  if (data) {
+    sessionStorage.setItem(CONFIG.STORAGE_KEYS.PENDING_CHECKOUT, JSON.stringify(data));
+  } else {
+    sessionStorage.removeItem(CONFIG.STORAGE_KEYS.PENDING_CHECKOUT);
+  }
+}
+
+/**
+ * Clear pending checkout context after successful checkout resumption or cancellation.
+ */
+export function clearPendingCheckout() {
+  sessionStorage.removeItem(CONFIG.STORAGE_KEYS.PENDING_CHECKOUT);
+}
+
+export function isAuthenticated() {
+  return Boolean(getAuthToken());
+}
+
+/**
  * Reset the guest session and clear session-specific local state.
  */
 export function resetSession() {
   localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_ID);
   localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_IDENTIFIER);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SESSION_TOKEN);
   localStorage.removeItem(CONFIG.STORAGE_KEYS.COMPARE_IDS);
   return getSessionIdentifier();
 }

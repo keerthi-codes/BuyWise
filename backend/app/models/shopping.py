@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     JSON,
+    Index,
 )
 from sqlalchemy.orm import relationship
 
@@ -65,6 +66,12 @@ class Product(Base):
         back_populates="product",
         cascade="all, delete-orphan",
         lazy="joined",
+    )
+    price_snapshots = relationship(
+        "PriceSnapshot",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="PriceSnapshot.recorded_at.desc()",
     )
 
     def lowest_price(self, currency: str | None = None) -> float | None:
@@ -144,6 +151,45 @@ class RetailerOffer(Base):
     product = relationship("Product", back_populates="offers")
 
 
+class PriceSnapshot(Base):
+    """
+    Persistent historical price observation for an individual product and retailer.
+    Preserves point-in-time price observations, stock availability, and retailer identity.
+    Strictly isolated from synthetic demo products (only genuine live offers recorded).
+    """
+
+    __tablename__ = "price_snapshots"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    product_id = Column(
+        String(64),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    retailer_name = Column(String(128), nullable=False, index=True)
+    provider_offer_id = Column(String(128), nullable=True, index=True)
+    price = Column(Float, nullable=False)
+    currency = Column(String(3), nullable=False, default="USD")
+    availability = Column(String(64), nullable=False, default="IN_STOCK")
+    recorded_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    is_synthetic = Column(Boolean, nullable=False, default=False)
+
+    # Relationships
+    product = relationship("Product", back_populates="price_snapshots")
+
+    __table_args__ = (
+        Index("ix_price_snapshots_product_currency", "product_id", "currency"),
+        Index("ix_price_snapshots_product_retailer", "product_id", "retailer_name"),
+        Index("ix_price_snapshots_lookup", "product_id", "currency", "recorded_at"),
+    )
+
+
 class ShoppingSession(Base):
     """
     Lightweight guest browsing session for mandate association without requiring full user registration.
@@ -153,6 +199,17 @@ class ShoppingSession(Base):
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     session_identifier = Column(String(128), nullable=False, unique=True, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    session_token = Column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -166,6 +223,10 @@ class ShoppingSession(Base):
     )
 
     # Relationships
+    user = relationship(
+        "User",
+        back_populates="sessions",
+    )
     mandate = relationship(
         "SpendingMandate",
         back_populates="session",

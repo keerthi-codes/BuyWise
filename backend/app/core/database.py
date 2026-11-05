@@ -140,6 +140,47 @@ def ensure_schema_compatibility(target_engine: Engine) -> None:
             if order_cols:
                 if "paypal_capture_request_id" not in order_cols:
                     conn.execute(text("ALTER TABLE payment_orders ADD COLUMN paypal_capture_request_id VARCHAR(64)"))
+                if "budget_override_applied" not in order_cols:
+                    conn.execute(text("ALTER TABLE payment_orders ADD COLUMN budget_override_applied BOOLEAN DEFAULT 0"))
+                if "original_budget_amount" not in order_cols:
+                    conn.execute(text("ALTER TABLE payment_orders ADD COLUMN original_budget_amount NUMERIC(12, 2)"))
+                if "budget_exceeded_amount" not in order_cols:
+                    conn.execute(text("ALTER TABLE payment_orders ADD COLUMN budget_exceeded_amount NUMERIC(12, 2)"))
+                if "user_id" not in order_cols:
+                    conn.execute(text("ALTER TABLE payment_orders ADD COLUMN user_id VARCHAR(64)"))
+                conn.commit()
+
+            # Check shopping_sessions table
+            session_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(shopping_sessions)")).fetchall()]
+            if session_cols:
+                if "user_id" not in session_cols:
+                    conn.execute(text("ALTER TABLE shopping_sessions ADD COLUMN user_id VARCHAR(64)"))
+                if "session_token" not in session_cols:
+                    conn.execute(text("ALTER TABLE shopping_sessions ADD COLUMN session_token VARCHAR(64)"))
+                conn.commit()
+# Check price_snapshots table
+            snapshot_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(price_snapshots)")).fetchall()]
+            if not snapshot_cols:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS price_snapshots (
+                        id VARCHAR(64) PRIMARY KEY,
+                        product_id VARCHAR(64) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                        retailer_name VARCHAR(128) NOT NULL,
+                        provider_offer_id VARCHAR(128),
+                        price FLOAT NOT NULL,
+                        currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                        availability VARCHAR(64) NOT NULL DEFAULT 'IN_STOCK',
+                        recorded_at DATETIME NOT NULL,
+                        is_synthetic BOOLEAN NOT NULL DEFAULT 0
+                    );
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_product_id ON price_snapshots(product_id);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_retailer_name ON price_snapshots(retailer_name);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_provider_offer_id ON price_snapshots(provider_offer_id);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_recorded_at ON price_snapshots(recorded_at);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_product_currency ON price_snapshots(product_id, currency);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_product_retailer ON price_snapshots(product_id, retailer_name);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_price_snapshots_lookup ON price_snapshots(product_id, currency, recorded_at);"))
                 conn.commit()
         except Exception as e:
             logger.warning("Schema compatibility check skipped or not needed: %s", e)

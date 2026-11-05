@@ -120,6 +120,12 @@ class PaymentOrder(Base):
     )
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     internal_order_number = Column(
         String(50),
         nullable=False,
@@ -189,6 +195,19 @@ class PaymentOrder(Base):
         nullable=False,
         default="SANDBOX_DEMO",
     )
+    budget_override_applied = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    original_budget_amount = Column(
+        Numeric(12, 2, asdecimal=True),
+        nullable=True,
+    )
+    budget_exceeded_amount = Column(
+        Numeric(12, 2, asdecimal=True),
+        nullable=True,
+    )
     expires_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -208,6 +227,7 @@ class PaymentOrder(Base):
     )
 
     # Relationships
+    user = relationship("User", back_populates="orders")
     session = relationship("ShoppingSession", back_populates="orders")
     mandate = relationship("SpendingMandate", back_populates="orders")
     items = relationship(

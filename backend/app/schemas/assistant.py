@@ -5,10 +5,10 @@ Defines structured schemas for shopping intent extraction, grounded product anal
 multi-product comparisons, and session-scoped conversational queries.
 """
 
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.app.schemas.product import ProductResponse
+from backend.app.schemas.product import ProductResponse, ComparisonExplanation
 
 
 class SpecificationRequirement(BaseModel):
@@ -127,23 +127,6 @@ class ProductIntelligenceList(BaseModel):
     items: list[ProductIntelligence] = Field(default_factory=list)
 
 
-class ComparisonExplanation(BaseModel):
-    """
-    Grounded multi-product comparison summary and intended-use recommendation.
-    """
-    summary: str = Field(..., description="High-level overview of the compared items")
-    performance_differences: list[str] = Field(default_factory=list, description="Evidenced technical differences")
-    key_differences: list[str] = Field(default_factory=list, description="Key evidenced differences")
-    value_tradeoffs: str = Field(default="", description="Analysis of price spreads and value trade-offs")
-    tradeoffs: list[str] = Field(default_factory=list, description="Detailed trade-off points")
-    best_choice_for_use_case: str = Field(default="", description="Recommended product for the specific user need")
-    overall_winner: str | None = Field(default=None, description="Overall winning product for use case")
-    best_value_pick: str | None = Field(default=None, description="Best value for money product")
-    missing_specs_notes: list[str] = Field(default_factory=list, description="Noteworthy missing specs in comparison")
-    currency_notes: str | None = Field(default=None, description="Notes on currency alignment or cross-currency cautions")
-    currency_consistency_warning: str | None = Field(default=None, description="Warning if cross-currency comparisons lack FX conversion")
-
-
 class AssistantQueryRequest(BaseModel):
     """Request payload for the conversational AI shopping assistant endpoint."""
     session_id: str = Field(..., description="Unique shopping session identifier")
@@ -166,6 +149,36 @@ class ProductEligibilityItem(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     verified_specs: dict[str, Any] = Field(default_factory=dict)
     unverified_specs: list[str] = Field(default_factory=list)
+    mandate_status: Literal["ALLOWED", "WARNING_OVERRIDE_REQUIRED", "BLOCKED", "NOT_APPLICABLE"] = Field(
+        default="NOT_APPLICABLE",
+        description="Explicit mandate compliance: ALLOWED, WARNING_OVERRIDE_REQUIRED, BLOCKED, or NOT_APPLICABLE",
+    )
+    mandate_reasons: list[str] = Field(
+        default_factory=list,
+        description="Detailed policy evaluation reasons if evaluated against an active mandate",
+    )
+    is_budget_exceeded: bool = Field(
+        default=False,
+        description="Whether product price exceeds user preferred budget or mandate limits",
+    )
+    budget_exceeded_amount: float | None = Field(
+        default=None,
+        description="Exact amount by which product exceeds budget",
+    )
+    is_override_eligible: bool = Field(
+        default=False,
+        description="Whether this over-budget restriction can be overridden by user consent",
+    )
+    recommendation_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Deterministic preference match score between 0.0 and 100.0",
+    )
+    score_reasons: list[str] = Field(
+        default_factory=list,
+        description="Transparent breakdown of scoring factors and preference match details",
+    )
 
 
 class AssistantQueryResponse(BaseModel):
@@ -184,6 +197,18 @@ class AssistantQueryResponse(BaseModel):
     mandate_evaluation: dict[str, Any] | None = Field(
         default=None,
         description="Authoritative deterministic spending mandate policy result",
+    )
+    comparison_explanation: ComparisonExplanation | None = Field(
+        default=None,
+        description="Grounded AI multi-product comparison analysis and trade-offs",
+    )
+    comparison_matrix: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        description="Attribute-based comparison matrix mapping specification keys to product values",
+    )
+    price_summary: dict[str, Any] | None = Field(
+        default=None,
+        description="High-level comparison price spread and currency consistency metrics",
     )
     is_ai_degraded: bool = Field(default=False, description="True if AI reasoning fell back due to provider unavailability")
     degraded_reason: str | None = Field(default=None, description="Explanation if AI reasoning was degraded")

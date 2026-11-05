@@ -170,8 +170,11 @@ async def test_policy_evaluation_exceeds_total_budget_blocked(async_client: http
     )
     assert eval_resp.status_code == status.HTTP_200_OK
     result = eval_resp.json()
-    assert result["decision"] == "BLOCKED"
+    assert result["decision"] == "WARNING_OVERRIDE_REQUIRED"
     assert result["is_allowed"] is False
+    assert result["is_budget_exceeded"] is True
+    assert result["is_override_eligible"] is True
+    assert result["budget_exceeded_amount"] == 100.0
     assert any("exceeds your remaining mandate budget" in r for r in result["reasons"])
 
 
@@ -205,8 +208,11 @@ async def test_policy_evaluation_exceeds_max_item_price_blocked(async_client: ht
     )
     assert eval_resp.status_code == status.HTTP_200_OK
     result = eval_resp.json()
-    assert result["decision"] == "BLOCKED"
+    assert result["decision"] == "WARNING_OVERRIDE_REQUIRED"
     assert result["is_allowed"] is False
+    assert result["is_budget_exceeded"] is True
+    assert result["is_override_eligible"] is True
+    assert result["budget_exceeded_amount"] == 589.0
     assert any("exceeds your maximum permitted item price limit" in r for r in result["reasons"])
 
 

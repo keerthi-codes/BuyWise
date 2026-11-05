@@ -58,6 +58,11 @@ class RootResponse(BaseModel):
         503: {"description": "Database connectivity check failed."},
     },
 )
+@router.get(
+    "/api/health",
+    response_model=HealthResponse,
+    include_in_schema=False,
+)
 def health_check(
     db: Session = Depends(get_db),
     check_timeout: int = Query(
@@ -105,7 +110,7 @@ def root_endpoint(request: Request) -> Any:
     accept = request.headers.get("accept", "")
     # Check if request specifically requests HTML from a web browser
     if "text/html" in accept and not accept.strip() == "*/*" and FRONTEND_INDEX.exists():
-        return FileResponse(FRONTEND_INDEX, media_type="text/html")
+        return FileResponse(FRONTEND_INDEX, media_type="text/html; charset=utf-8")
 
     return RootResponse(
         app=settings.APP_NAME,

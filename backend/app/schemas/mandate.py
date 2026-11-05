@@ -28,6 +28,10 @@ class SpendingMandateCreate(SpendingMandateBase):
         default=None,
         description="Client guest session token or cookie identifier to bind or create session.",
     )
+    session_token: str | None = Field(
+        default=None,
+        description="Proof-of-possession token for guest shopping session.",
+    )
 
 
 class SpendingMandateUpdate(BaseModel):
@@ -35,6 +39,10 @@ class SpendingMandateUpdate(BaseModel):
     maximum_item_price: float | None = Field(default=None, gt=0, description="Updated maximum item price ceiling")
     maximum_quantity: int | None = Field(default=None, ge=1, description="Updated maximum quantity ceiling")
     currency: str | None = Field(default=None, min_length=3, max_length=3, description="Updated currency")
+    session_token: str | None = Field(
+        default=None,
+        description="Proof-of-possession token for guest shopping session.",
+    )
 
 
 class SpendingMandateResponse(SpendingMandateBase):
@@ -59,8 +67,8 @@ class PurchaseEvaluationRequest(BaseModel):
 
 
 class PurchaseEvaluationResponse(BaseModel):
-    decision: Literal["ALLOWED", "BLOCKED"] = Field(
-        description="Deterministic policy outcome: ALLOWED or BLOCKED"
+    decision: Literal["ALLOWED", "WARNING_OVERRIDE_REQUIRED", "BLOCKED"] = Field(
+        description="Deterministic policy outcome: ALLOWED, WARNING_OVERRIDE_REQUIRED, or BLOCKED"
     )
     is_allowed: bool = Field(description="Boolean convenience flag for quick branching")
     reasons: list[str] = Field(
@@ -76,4 +84,16 @@ class PurchaseEvaluationResponse(BaseModel):
     remaining_budget_after_purchase: float | None = Field(
         default=None,
         description="Remaining budget if purchase were approved (total_budget - purchase_amount)",
+    )
+    is_budget_exceeded: bool = Field(
+        default=False,
+        description="Whether purchase exceeds preferred budget or item ceiling",
+    )
+    budget_exceeded_amount: float | None = Field(
+        default=None,
+        description="Exact amount by which purchase exceeds preferred budget/item ceiling",
+    )
+    is_override_eligible: bool = Field(
+        default=False,
+        description="Whether user can explicitly confirm override to proceed",
     )

@@ -14,6 +14,13 @@ from backend.app.schemas.product import (
     RetailerOfferBase,
     RetailerOfferCreate,
     RetailerOfferResponse,
+    CurrentBestPrice,
+    HistoricalPricePoint,
+    OfferPriceChange,
+    CurrencyRetailerComparison,
+    PriceStability,
+    PriceSnapshotPoint,
+    ProductIntelligenceResponse,
 )
 from backend.app.schemas.mandate import (
     SpendingMandateBase,
@@ -32,6 +39,16 @@ from backend.app.schemas.assistant import (
     ComparisonExplanation,
     AssistantQueryRequest,
     AssistantQueryResponse,
+)
+from backend.app.schemas.auth import (
+    UserRegisterRequest,
+    UserLoginRequest,
+    UserResponse,
+    TokenResponse,
+    LinkSessionRequest,
+    LinkSessionResponse,
+    SessionCredentialResponse,
+    SessionTokenRequest,
 )
 from backend.app.schemas.checkout import (
     OrderItemBase,
@@ -56,6 +73,13 @@ __all__ = [
     "RetailerOfferBase",
     "RetailerOfferCreate",
     "RetailerOfferResponse",
+    "CurrentBestPrice",
+    "HistoricalPricePoint",
+    "OfferPriceChange",
+    "CurrencyRetailerComparison",
+    "PriceStability",
+    "PriceSnapshotPoint",
+    "ProductIntelligenceResponse",
     "SpendingMandateBase",
     "SpendingMandateCreate",
     "SpendingMandateUpdate",
@@ -79,4 +103,12 @@ __all__ = [
     "PaymentHistoryItemResponse",
     "PaymentOrderListResponse",
     "RetailerRedirectResponse",
+    "UserRegisterRequest",
+    "UserLoginRequest",
+    "UserResponse",
+    "TokenResponse",
+    "LinkSessionRequest",
+    "LinkSessionResponse",
+    "SessionCredentialResponse",
+    "SessionTokenRequest",
 ]

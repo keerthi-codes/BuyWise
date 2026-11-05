@@ -18,10 +18,12 @@ from backend.app.api.products import router as products_router
 from backend.app.api.mandates import router as mandates_router
 from backend.app.api.assistant import router as assistant_router
 from backend.app.api.checkout import router as checkout_router
+from backend.app.api.auth import router as auth_router
 from backend.app.core.config import get_settings
 from backend.app.core.database import engine, Base, ensure_schema_compatibility
 from backend.app.core.errors import register_error_handlers
 from backend.app.core.seed import seed_database
+from backend.app.services.price_tracker import PriceTracker
 import backend.app.models  # Register all domain and payment models on Base.metadata
 
 # Configure structured logging
@@ -49,9 +51,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Seed demo catalog if empty (idempotent)
     seed_database(bind=engine)
 
+    # Start periodic price tracking background worker
+    PriceTracker.start()
+
     yield
 
-    logger.info("Shutting down application and disposing database connection pool...")
+    logger.info("Shutting down application and stopping background price tracker...")
+    await PriceTracker.stop()
+    logger.info("Disposing database connection pool...")
     engine.dispose()
     logger.info("Database connection pool disposed.")
 
@@ -84,6 +91,7 @@ def create_application() -> FastAPI:
 
     # Clean router registration
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(products_router)
     app.include_router(mandates_router)
     app.include_router(assistant_router)
@@ -101,7 +109,7 @@ def create_application() -> FastAPI:
     def serve_index_html():
         index_file = frontend_dir / "index.html"
         if index_file.exists():
-            return FileResponse(index_file, media_type="text/html")
+            return FileResponse(index_file, media_type="text/html; charset=utf-8")
         raise HTTPException(status_code=404, detail="Frontend index.html not found.")
 
     @app.get("/favicon.ico", include_in_schema=False)

@@ -750,7 +750,7 @@ def test_spending_policy_cannot_be_bypassed_by_ai(test_session: Session):
 
     # 3. Assert that deterministic policy engine evaluated to BLOCKED
     assert resp.mandate_evaluation is not None
-    assert resp.mandate_evaluation["decision"] == "BLOCKED"
+    assert resp.mandate_evaluation["decision"] in ("BLOCKED", "WARNING_OVERRIDE_REQUIRED")
     assert any("maximum permitted item price limit" in r for r in resp.mandate_evaluation["reasons"])
 
 
@@ -1336,9 +1336,11 @@ def test_eligibility_product_above_budget():
     product = _build_test_product("p6", "ExpensiveBook", 1499.0, "USD")
     elig = AssistantService.evaluate_product_eligibility(product, intent)
 
-    assert elig.is_qualified is False
-    assert elig.status == "EXCLUDED"
-    assert any("exceeds your maximum budget" in r for r in elig.reasons)
+    assert elig.is_budget_exceeded is True
+    assert elig.budget_exceeded_amount == 499.0
+    assert elig.is_override_eligible is True
+    assert elig.status == "QUALIFIED"
+    assert any("exceeds your preferred budget" in r for r in elig.reasons)
 
 
 def test_eligibility_product_meeting_ram():

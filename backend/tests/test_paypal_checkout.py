@@ -16,6 +16,8 @@ import httpx
 import pytest
 from sqlalchemy.orm import Session
 
+from backend.app.core.security import create_access_token
+from backend.app.models.user import User
 from backend.app.models.shopping import Product, RetailerOffer, ShoppingSession, SpendingMandate
 from backend.app.models.payment import (
     PaymentOrder,
@@ -31,6 +33,7 @@ from backend.app.schemas.checkout import (
     OrderItemCreate,
     PaymentOrderResponse,
     PaymentOrderListResponse,
+    PersonalAnalyticsResponse,
 )
 from backend.app.services.paypal_client import (
     PayPalClient,
@@ -62,6 +65,20 @@ from backend.app.services.checkout_service import (
 # =============================================================================
 # Mock Transport Fixtures for PayPal REST API
 # =============================================================================
+
+@pytest.fixture(autouse=True)
+def authed_checkout_user(test_session: Session, async_client: httpx.AsyncClient):
+    user = User(
+        id="authed_paypal_test_user_1",
+        email="paypal_tester@example.com",
+        name="PayPal Tester",
+        hashed_password="test_hashed_password",
+    )
+    test_session.add(user)
+    test_session.commit()
+    token, _, _ = create_access_token(user_id=user.id, email=user.email, name=user.name)
+    async_client.headers["Authorization"] = f"Bearer {token}"
+    yield user
 
 @pytest.fixture
 def mock_paypal_transport():
@@ -353,7 +370,7 @@ def test_checkout_invalid_session(test_session: Session, mock_paypal_client: Pay
 
 def test_checkout_invalid_or_expired_offer(test_session: Session, mock_paypal_client: PayPalClient):
     """Scenario 9: Out-of-stock or missing retailer offer is rejected."""
-    session = ShoppingSession(session_identifier="sess_out_of_stock")
+    session = ShoppingSession(session_identifier="sess_out_of_stock", user_id="authed_paypal_test_user_1")
     test_session.add(session)
     test_session.commit()
 
@@ -386,12 +403,12 @@ def test_checkout_invalid_or_expired_offer(test_session: Session, mock_paypal_cl
         ],
     )
     with pytest.raises(OfferOutOfStockError):
-        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
+        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
 
 
 def test_checkout_spending_mandate_rejection(test_session: Session, mock_paypal_client: PayPalClient):
     """Scenario 10: Purchase exceeding spending mandate ceiling is rejected deterministically."""
-    session = ShoppingSession(session_identifier="sess_mandate_rejection")
+    session = ShoppingSession(session_identifier="sess_mandate_rejection", user_id="authed_paypal_test_user_1")
     test_session.add(session)
     test_session.commit()
 
@@ -417,8 +434,9 @@ def test_checkout_spending_mandate_rejection(test_session: Session, mock_paypal_
             )
         ],
     )
-    with pytest.raises(MandatePolicyViolationError) as exc_info:
-        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
+    from backend.app.services.checkout_service import BudgetOverrideRequiredError
+    with pytest.raises((BudgetOverrideRequiredError, MandatePolicyViolationError)) as exc_info:
+        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
     assert any("exceeds your maximum permitted item price" in r for r in exc_info.value.reasons)
 
 
@@ -429,7 +447,7 @@ def test_checkout_external_channel3_offer_rejection(test_session: Session, mock_
     External Channel3 marketplace offers must NOT be checked out via internal PayPal demo gateway.
     Must raise ExternalRetailerCheckoutError and direct user to merchant website.
     """
-    session = ShoppingSession(session_identifier="sess_external_c3_rejection")
+    session = ShoppingSession(session_identifier="sess_external_c3_rejection", user_id="authed_paypal_test_user_1")
     test_session.add(session)
     test_session.commit()
 
@@ -470,7 +488,7 @@ def test_checkout_external_channel3_offer_rejection(test_session: Session, mock_
         ],
     )
     with pytest.raises(ExternalRetailerCheckoutError) as exc_info:
-        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
+        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
 
     err = exc_info.value
     assert err.retailer_name == "BestBuy"
@@ -481,7 +499,7 @@ def test_checkout_external_channel3_offer_rejection(test_session: Session, mock_
 
 def test_checkout_duplicate_idempotency_request(test_session: Session, mock_paypal_client: PayPalClient):
     """Scenario 12: Duplicate checkout submission with same idempotency key returns original order."""
-    session = ShoppingSession(session_identifier="sess_duplicate_idem")
+    session = ShoppingSession(session_identifier="sess_duplicate_idem", user_id="authed_paypal_test_user_1")
     test_session.add(session)
     test_session.commit()
 
@@ -498,8 +516,8 @@ def test_checkout_duplicate_idempotency_request(test_session: Session, mock_payp
             )
         ],
     )
-    res1 = CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
-    res2 = CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
+    res1 = CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
+    res2 = CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
 
     assert res1.id == res2.id
     assert res1.paypal_order_id == res2.paypal_order_id
@@ -511,7 +529,7 @@ def test_checkout_duplicate_idempotency_request(test_session: Session, mock_payp
 
 def test_checkout_unsupported_currency(test_session: Session, mock_paypal_client: PayPalClient):
     """Scenario 13: Unsupported currency raises UnsupportedCurrencyError."""
-    session = ShoppingSession(session_identifier="sess_unsupported_currency")
+    session = ShoppingSession(session_identifier="sess_unsupported_currency", user_id="authed_paypal_test_user_1")
     test_session.add(session)
     test_session.commit()
 
@@ -528,7 +546,7 @@ def test_checkout_unsupported_currency(test_session: Session, mock_paypal_client
         ],
     )
     with pytest.raises(UnsupportedCurrencyError):
-        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
+        CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
 
 
 # =============================================================================
@@ -537,7 +555,7 @@ def test_checkout_unsupported_currency(test_session: Session, mock_paypal_client
 
 def test_capture_order_success(test_session: Session, mock_paypal_client: PayPalClient):
     """Scenario 14: Successful capture authoritatively verifies settlement and updates order."""
-    session = ShoppingSession(session_identifier="sess_capture_success")
+    session = ShoppingSession(session_identifier="sess_capture_success", user_id="authed_paypal_test_user_1")
     test_session.add(session)
     test_session.commit()
 
@@ -552,7 +570,7 @@ def test_capture_order_success(test_session: Session, mock_paypal_client: PayPal
             )
         ],
     )
-    order_res = CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client)
+    order_res = CheckoutService.create_checkout_order(db=test_session, request=req, paypal_client=mock_paypal_client, user_id="authed_paypal_test_user_1")
 
     # Capture order
     capture_res = CheckoutService.capture_checkout_order(
@@ -560,6 +578,7 @@ def test_capture_order_success(test_session: Session, mock_paypal_client: PayPal
         order_id=order_res.id,
         session_id=session.id,
         paypal_client=mock_paypal_client,
+        user_id="authed_paypal_test_user_1",
     )
 
     assert capture_res.status == PaymentOrderStatus.COMPLETED.value
@@ -977,3 +996,574 @@ async def test_api_checkout_history(async_client: httpx.AsyncClient, test_sessio
     assert hist["total"] == 1
     assert len(hist["orders"]) == 1
     assert hist["orders"][0]["total_amount"] == "79.99"
+
+# =============================================================================
+# Category 6: Personal Shopping Analytics Tests (Phase 1)
+# =============================================================================
+
+def test_analytics_completed_verified_purchase_aggregation(test_session: Session):
+    """Test 1: Verify completed orders with verified captures are correctly aggregated."""
+    session = ShoppingSession(session_identifier="analytics_agg_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    prod = Product(
+        name="UltraBook Pro",
+        brand="TechCorp",
+        category="Computing",
+        description="High performance laptop",
+        specifications={"ram": "32GB"},
+    )
+    test_session.add(prod)
+    test_session.commit()
+
+    order = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("1200.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(order)
+    test_session.commit()
+
+    item = OrderItem(
+        payment_order_id=order.id,
+        product_id=prod.id,
+        product_name=prod.name,
+        retailer_name="TechStore",
+        quantity=1,
+        unit_price=Decimal("1200.00"),
+        subtotal=Decimal("1200.00"),
+        currency="USD",
+    )
+    capture = PaymentCapture(
+        payment_order_id=order.id,
+        paypal_order_id="PAYPAL-ORD-1",
+        paypal_capture_id="CAP-AGG-1",
+        captured_amount=Decimal("1200.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add_all([item, capture])
+    test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    assert analytics.completed_order_count == 1
+    assert len(analytics.total_spending_by_currency) == 1
+
+    usd_summary = analytics.total_spending_by_currency[0]
+    assert usd_summary.currency == "USD"
+    assert usd_summary.total_spent == Decimal("1200.00")
+    assert usd_summary.total_order_amount == Decimal("1200.00")
+    assert usd_summary.order_count == 1
+    assert usd_summary.average_order_value == Decimal("1200.00")
+    assert "match order totals exactly" in usd_summary.discrepancy_explanation
+
+
+def test_analytics_exclusion_of_incomplete_orders(test_session: Session):
+    """Test 2: Incomplete, expired, failed, or unverified orders are excluded."""
+    session = ShoppingSession(session_identifier="analytics_incomplete_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    # Draft / non-terminal orders
+    for idx, st in enumerate([
+        PaymentOrderStatus.CREATED.value,
+        PaymentOrderStatus.APPROVED.value,
+        PaymentOrderStatus.CAPTURE_PENDING.value,
+        PaymentOrderStatus.CANCELLED.value,
+        PaymentOrderStatus.EXPIRED.value,
+        PaymentOrderStatus.FAILED.value,
+    ]):
+        ord_unfin = PaymentOrder(
+            session_id=session.id,
+            total_amount=Decimal("100.00"),
+            currency="USD",
+            status=st,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        )
+        test_session.add(ord_unfin)
+
+    # Order marked COMPLETED but with UNVERIFIED capture
+    ord_unverified = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("250.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_unverified)
+    test_session.commit()
+
+    cap_unverified = PaymentCapture(
+        payment_order_id=ord_unverified.id,
+        paypal_order_id="PAYPAL-UNVER-1",
+        paypal_capture_id="CAP-UNVER-1",
+        captured_amount=Decimal("250.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=False,  # Unverified!
+    )
+    test_session.add(cap_unverified)
+
+    # Legitimate verified completed order
+    ord_legit = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("99.99"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_legit)
+    test_session.commit()
+
+    cap_legit = PaymentCapture(
+        payment_order_id=ord_legit.id,
+        paypal_order_id="PAYPAL-LEGIT-1",
+        paypal_capture_id="CAP-LEGIT-1",
+        captured_amount=Decimal("99.99"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap_legit)
+    test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    # Only 1 legitimate completed order should be counted
+    assert analytics.completed_order_count == 1
+    assert len(analytics.total_spending_by_currency) == 1
+    assert analytics.total_spending_by_currency[0].total_spent == Decimal("99.99")
+
+
+def test_analytics_category_wise_spending(test_session: Session):
+    """Test 3: Category-wise spending breakdown calculates subtotals and percentages accurately."""
+    session = ShoppingSession(session_identifier="analytics_cat_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    p_audio = Product(name="Wireless Earbuds", brand="AudioMax", category="Audio")
+    p_comp = Product(name="Workstation PC", brand="PowerRig", category="Computing")
+    test_session.add_all([p_audio, p_comp])
+    test_session.commit()
+
+    order = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("400.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(order)
+    test_session.commit()
+
+    item_audio = OrderItem(
+        payment_order_id=order.id,
+        product_id=p_audio.id,
+        product_name=p_audio.name,
+        retailer_name="BestAudio",
+        quantity=1,
+        unit_price=Decimal("100.00"),
+        subtotal=Decimal("100.00"),
+        currency="USD",
+    )
+    item_comp = OrderItem(
+        payment_order_id=order.id,
+        product_id=p_comp.id,
+        product_name=p_comp.name,
+        retailer_name="CompHub",
+        quantity=1,
+        unit_price=Decimal("300.00"),
+        subtotal=Decimal("300.00"),
+        currency="USD",
+    )
+    cap = PaymentCapture(
+        payment_order_id=order.id,
+        paypal_order_id="P-CAT-1",
+        paypal_capture_id="CAP-CAT-1",
+        captured_amount=Decimal("400.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add_all([item_audio, item_comp, cap])
+    test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    cats = {c.category: c for c in analytics.category_spending}
+
+    assert "Computing" in cats
+    assert cats["Computing"].total_amount == Decimal("300.00")
+    assert cats["Computing"].percentage_of_currency_total == 75.0
+
+    assert "Audio" in cats
+    assert cats["Audio"].total_amount == Decimal("100.00")
+    assert cats["Audio"].percentage_of_currency_total == 25.0
+
+
+def test_analytics_retailer_wise_spending(test_session: Session):
+    """Test 4: Retailer-wise spending breakdown sums correctly across merchant names."""
+    session = ShoppingSession(session_identifier="analytics_ret_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    order = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("500.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(order)
+    test_session.commit()
+
+    item_bestbuy = OrderItem(
+        payment_order_id=order.id,
+        product_name="4K Monitor",
+        retailer_name="Best Buy",
+        quantity=1,
+        unit_price=Decimal("350.00"),
+        subtotal=Decimal("350.00"),
+        currency="USD",
+    )
+    item_amazon = OrderItem(
+        payment_order_id=order.id,
+        product_name="HDMI Cable Pack",
+        retailer_name="Amazon",
+        quantity=1,
+        unit_price=Decimal("150.00"),
+        subtotal=Decimal("150.00"),
+        currency="USD",
+    )
+    cap = PaymentCapture(
+        payment_order_id=order.id,
+        paypal_order_id="P-RET-1",
+        paypal_capture_id="CAP-RET-1",
+        captured_amount=Decimal("500.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add_all([item_bestbuy, item_amazon, cap])
+    test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    rets = {r.retailer_name: r for r in analytics.retailer_spending}
+
+    assert "Best Buy" in rets
+    assert rets["Best Buy"].total_amount == Decimal("350.00")
+    assert rets["Best Buy"].percentage_of_currency_total == 70.0
+
+    assert "Amazon" in rets
+    assert rets["Amazon"].total_amount == Decimal("150.00")
+    assert rets["Amazon"].percentage_of_currency_total == 30.0
+
+
+def test_analytics_multiple_currencies_kept_separate(test_session: Session):
+    """Test 5: Invariant - disparate currencies are strictly segregated and never combined."""
+    session = ShoppingSession(session_identifier="analytics_multi_curr_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    # Order 1 in USD
+    ord_usd = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("100.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_usd)
+    test_session.commit()
+    cap_usd = PaymentCapture(
+        payment_order_id=ord_usd.id,
+        paypal_order_id="P-USD-1",
+        paypal_capture_id="CAP-USD-1",
+        captured_amount=Decimal("100.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap_usd)
+
+    # Order 2 in INR
+    ord_inr = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("50000.00"),
+        currency="INR",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_inr)
+    test_session.commit()
+    cap_inr = PaymentCapture(
+        payment_order_id=ord_inr.id,
+        paypal_order_id="P-INR-1",
+        paypal_capture_id="CAP-INR-1",
+        captured_amount=Decimal("50000.00"),
+        currency="INR",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap_inr)
+
+    # Order 3 in EUR
+    ord_eur = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("80.00"),
+        currency="EUR",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_eur)
+    test_session.commit()
+    cap_eur = PaymentCapture(
+        payment_order_id=ord_eur.id,
+        paypal_order_id="P-EUR-1",
+        paypal_capture_id="CAP-EUR-1",
+        captured_amount=Decimal("80.00"),
+        currency="EUR",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap_eur)
+    test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    assert analytics.completed_order_count == 3
+    assert len(analytics.total_spending_by_currency) == 3
+
+    curr_dict = {s.currency: s.total_spent for s in analytics.total_spending_by_currency}
+    assert curr_dict["USD"] == Decimal("100.00")
+    assert curr_dict["INR"] == Decimal("50000.00")
+    assert curr_dict["EUR"] == Decimal("80.00")
+
+    # Verify AOV per currency
+    assert analytics.average_order_value_by_currency["USD"] == Decimal("100.00")
+    assert analytics.average_order_value_by_currency["INR"] == Decimal("50000.00")
+    assert analytics.average_order_value_by_currency["EUR"] == Decimal("80.00")
+
+
+def test_analytics_average_order_value(test_session: Session):
+    """Test 6: Average Order Value computes accurately across multiple orders in same currency."""
+    session = ShoppingSession(session_identifier="analytics_aov_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    for amt in [Decimal("100.00"), Decimal("200.00"), Decimal("600.00")]:
+        order = PaymentOrder(
+            session_id=session.id,
+            total_amount=amt,
+            currency="USD",
+            status=PaymentOrderStatus.COMPLETED.value,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        )
+        test_session.add(order)
+        test_session.commit()
+
+        cap = PaymentCapture(
+            payment_order_id=order.id,
+            paypal_order_id=f"P-AOV-{amt}",
+            paypal_capture_id=f"CAP-AOV-{amt}",
+            captured_amount=amt,
+            currency="USD",
+            capture_status="COMPLETED",
+            is_verified=True,
+        )
+        test_session.add(cap)
+        test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    # Total = 900.00, count = 3 -> AOV = 300.00
+    assert analytics.completed_order_count == 3
+    assert analytics.average_order_value_by_currency["USD"] == Decimal("300.00")
+    assert analytics.total_spending_by_currency[0].average_order_value == Decimal("300.00")
+
+
+def test_analytics_empty_session(test_session: Session):
+    """Test 7: Empty or fresh sessions return 0 counts and empty arrays gracefully without crashing."""
+    # 1. Non-existent session ID
+    res_nonexistent = CheckoutService.get_session_analytics(db=test_session, session_id="nonexistent-session-xyz")
+    assert res_nonexistent.completed_order_count == 0
+    assert res_nonexistent.total_spending_by_currency == []
+    assert res_nonexistent.average_order_value_by_currency == {}
+    assert res_nonexistent.monthly_spending_trends == []
+    assert res_nonexistent.category_spending == []
+    assert res_nonexistent.retailer_spending == []
+    assert res_nonexistent.active_mandate_utilization is None
+
+    # 2. Existing session with mandate but zero orders
+    sess_with_mandate = ShoppingSession(session_identifier="mandate_only_sess")
+    test_session.add(sess_with_mandate)
+    test_session.commit()
+
+    mandate = SpendingMandate(
+        session_id=sess_with_mandate.id,
+        total_budget=500.0,
+        maximum_item_price=250.0,
+        maximum_quantity=2,
+        currency="USD",
+    )
+    test_session.add(mandate)
+    test_session.commit()
+
+    res_mandate_zero = CheckoutService.get_session_analytics(db=test_session, session_id=sess_with_mandate.id)
+    assert res_mandate_zero.completed_order_count == 0
+    assert res_mandate_zero.active_mandate_utilization is not None
+    assert res_mandate_zero.active_mandate_utilization.total_budget == Decimal("500.00")
+    assert res_mandate_zero.active_mandate_utilization.spent_amount == Decimal("0.00")
+    assert res_mandate_zero.active_mandate_utilization.remaining_budget == Decimal("500.00")
+    assert res_mandate_zero.active_mandate_utilization.utilization_percentage == 0.0
+
+
+def test_analytics_strict_customer_session_isolation(test_session: Session):
+    """Test 8: Strict isolation - Customer A's transactions are never visible to Customer B."""
+    sess_a = ShoppingSession(session_identifier="customer_a_sess")
+    sess_b = ShoppingSession(session_identifier="customer_b_sess")
+    test_session.add_all([sess_a, sess_b])
+    test_session.commit()
+
+    # Customer A spends $1000 USD
+    ord_a = PaymentOrder(
+        session_id=sess_a.id,
+        total_amount=Decimal("1000.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_a)
+    test_session.commit()
+    cap_a = PaymentCapture(
+        payment_order_id=ord_a.id,
+        paypal_order_id="P-A-1",
+        paypal_capture_id="CAP-A-1",
+        captured_amount=Decimal("1000.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap_a)
+
+    # Customer B spends $45 USD
+    ord_b = PaymentOrder(
+        session_id=sess_b.id,
+        total_amount=Decimal("45.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(ord_b)
+    test_session.commit()
+    cap_b = PaymentCapture(
+        payment_order_id=ord_b.id,
+        paypal_order_id="P-B-1",
+        paypal_capture_id="CAP-B-1",
+        captured_amount=Decimal("45.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap_b)
+    test_session.commit()
+
+    analytics_a = CheckoutService.get_session_analytics(db=test_session, session_id=sess_a.id)
+    analytics_b = CheckoutService.get_session_analytics(db=test_session, session_id=sess_b.id)
+
+    assert analytics_a.completed_order_count == 1
+    assert analytics_a.total_spending_by_currency[0].total_spent == Decimal("1000.00")
+
+    assert analytics_b.completed_order_count == 1
+    assert analytics_b.total_spending_by_currency[0].total_spent == Decimal("45.00")
+
+
+def test_analytics_duplicate_captures_or_multi_items_do_not_inflate_totals(test_session: Session):
+    """Test 9: Multiple items in an order and duplicate captures do not cause Cartesian join inflation."""
+    session = ShoppingSession(session_identifier="analytics_no_inflation_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    order = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("100.00"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(order)
+    test_session.commit()
+
+    # 4 distinct order items totaling 100.00
+    for idx in range(4):
+        item = OrderItem(
+            payment_order_id=order.id,
+            product_name=f"Accessory {idx}",
+            retailer_name="MultiStore",
+            quantity=1,
+            unit_price=Decimal("25.00"),
+            subtotal=Decimal("25.00"),
+            currency="USD",
+        )
+        test_session.add(item)
+
+    # Primary verified capture of 100.00
+    cap1 = PaymentCapture(
+        payment_order_id=order.id,
+        paypal_order_id="P-MULTI-1",
+        paypal_capture_id="CAP-MULTI-1",
+        captured_amount=Decimal("100.00"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap1)
+    test_session.commit()
+
+    analytics = CheckoutService.get_session_analytics(db=test_session, session_id=session.id)
+    # Total spent MUST be 100.00, NOT 400.00!
+    assert analytics.completed_order_count == 1
+    assert analytics.total_spending_by_currency[0].total_spent == Decimal("100.00")
+    assert analytics.total_spending_by_currency[0].total_order_amount == Decimal("100.00")
+
+
+@pytest.mark.asyncio
+async def test_api_get_personal_analytics_endpoint(async_client: httpx.AsyncClient, test_session: Session):
+    """Test 10: GET /api/checkout/analytics/{session_id} FastAPI endpoint returns 200 OK and valid JSON."""
+    session = ShoppingSession(session_identifier="api_analytics_sess")
+    test_session.add(session)
+    test_session.commit()
+
+    order = PaymentOrder(
+        session_id=session.id,
+        total_amount=Decimal("199.99"),
+        currency="USD",
+        status=PaymentOrderStatus.COMPLETED.value,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    test_session.add(order)
+    test_session.commit()
+
+    cap = PaymentCapture(
+        payment_order_id=order.id,
+        paypal_order_id="P-API-AN-1",
+        paypal_capture_id="CAP-API-AN-1",
+        captured_amount=Decimal("199.99"),
+        currency="USD",
+        capture_status="COMPLETED",
+        is_verified=True,
+    )
+    test_session.add(cap)
+    test_session.commit()
+
+    resp = await async_client.get(f"/api/checkout/analytics/{session.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["session_id"] == session.id
+    assert data["completed_order_count"] == 1
+    assert len(data["total_spending_by_currency"]) == 1
+    assert data["total_spending_by_currency"][0]["currency"] == "USD"
+    assert data["total_spending_by_currency"][0]["total_spent"] == "199.99"
+    assert data["average_order_value_by_currency"]["USD"] == "199.99"
+

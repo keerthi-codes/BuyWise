@@ -9,10 +9,13 @@ Routes:
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.core.database import get_db
+from backend.app.core.auth import get_current_user_optional
+from backend.app.models.user import User
 from backend.app.repositories.mandate_repository import MandateRepository
 from backend.app.schemas.mandate import (
     SpendingMandateCreate,
@@ -37,7 +40,9 @@ router = APIRouter(prefix="/api/mandates", tags=["Spending Mandates"])
 )
 def create_mandate(
     payload: SpendingMandateCreate,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> SpendingMandateResponse:
     """Create or configure a session spending mandate."""
     if payload.maximum_item_price > payload.total_budget:
@@ -52,6 +57,29 @@ def create_mandate(
         session_id=payload.session_id,
         session_identifier=payload.session_identifier,
     )
+
+    effective_token = x_guest_session_token or payload.session_token
+    if session.user_id:
+        if not current_user or session.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Spending mandate belongs to another account.",
+            )
+    elif not current_user and session.session_token:
+        if not effective_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing guest session proof of possession.",
+            )
+        if session.session_token != effective_token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid guest session proof of possession.",
+            )
+    elif current_user:
+        # If user is authenticated, associate session with user
+        session.user_id = current_user.id
+        db.commit()
 
     mandate = MandateRepository.create_or_update_mandate(
         db=db,
@@ -73,7 +101,9 @@ def create_mandate(
 )
 def get_mandate(
     session_id: str,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> SpendingMandateResponse:
     """Fetch active mandate for session."""
     mandate = MandateRepository.get_mandate_by_session_id(db, session_id)
@@ -82,6 +112,24 @@ def get_mandate(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No spending mandate found for session '{session_id}'.",
         )
+    if mandate.session:
+        if mandate.session.user_id:
+            if not current_user or mandate.session.user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Spending mandate belongs to another account.",
+                )
+        elif not current_user and mandate.session.session_token:
+            if not x_guest_session_token:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Missing guest session proof of possession.",
+                )
+            if mandate.session.session_token != x_guest_session_token:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid guest session proof of possession.",
+                )
     return SpendingMandateResponse.model_validate(mandate)
 
 
@@ -94,7 +142,9 @@ def get_mandate(
 def update_mandate(
     session_id: str,
     payload: SpendingMandateUpdate,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> SpendingMandateResponse:
     """Update existing spending mandate."""
     existing = MandateRepository.get_mandate_by_session_id(db, session_id)
@@ -103,6 +153,25 @@ def update_mandate(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No spending mandate found for session '{session_id}'.",
         )
+    effective_token = x_guest_session_token or payload.session_token
+    if existing.session:
+        if existing.session.user_id:
+            if not current_user or existing.session.user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Spending mandate belongs to another account.",
+                )
+        elif not current_user and existing.session.session_token:
+            if not effective_token:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Missing guest session proof of possession.",
+                )
+            if existing.session.session_token != effective_token:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid guest session proof of possession.",
+                )
 
     # Validate that maximum_item_price does not exceed total_budget after update
     effective_budget = payload.total_budget if payload.total_budget is not None else existing.total_budget
@@ -134,7 +203,9 @@ def update_mandate(
 def validate_purchase(
     session_id: str,
     payload: PurchaseEvaluationRequest,
+    x_guest_session_token: Annotated[str | None, Header(alias="X-Guest-Session-Token")] = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> PurchaseEvaluationResponse:
     """
     Deterministic rule validation endpoint.
@@ -142,6 +213,24 @@ def validate_purchase(
     Independent of AI recommendation logic.
     """
     mandate = MandateRepository.get_mandate_by_session_id(db, session_id)
+    if mandate and mandate.session:
+        if mandate.session.user_id:
+            if not current_user or mandate.session.user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Spending mandate belongs to another account.",
+                )
+        elif not current_user and mandate.session.session_token:
+            if not x_guest_session_token:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Missing guest session proof of possession.",
+                )
+            if mandate.session.session_token != x_guest_session_token:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid guest session proof of possession.",
+                )
 
     evaluation = SpendingPolicyEngine.evaluate(
         mandate=mandate,
@@ -149,5 +238,7 @@ def validate_purchase(
         quantity=payload.quantity,
         currency=payload.currency,
     )
+
+    return evaluation
 
     return evaluation

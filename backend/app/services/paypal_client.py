@@ -210,8 +210,8 @@ class PayPalClient:
         currency: str,
         internal_order_number: str,
         paypal_request_id: str,
-        return_url: str = "https://example.com/checkout/return",
-        cancel_url: str = "https://example.com/checkout/cancel",
+        return_url: str = "http://localhost:5500/?paypal_return=true",
+        cancel_url: str = "http://localhost:5500/?paypal_cancel=true",
         description: str = "AI Shopping Intelligence Demo Checkout",
     ) -> dict[str, Any]:
         """

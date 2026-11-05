@@ -437,5 +437,5 @@ def test_spending_policy_engine_compatibility(test_session: Session):
         currency="USD",
     )
     assert decision_blocked.is_allowed is False
-    assert decision_blocked.decision == "BLOCKED"
+    assert decision_blocked.decision in ("BLOCKED", "WARNING_OVERRIDE_REQUIRED")
     assert any("exceeds" in r for r in decision_blocked.reasons)

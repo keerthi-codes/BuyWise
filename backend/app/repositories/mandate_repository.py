@@ -5,6 +5,7 @@ Encapsulates database operations for guest sessions and spending mandates.
 """
 
 from datetime import datetime, timezone
+import secrets
 import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -42,6 +43,7 @@ class MandateRepository:
             session = ShoppingSession(
                 id=new_id,
                 session_identifier=new_identifier,
+                session_token=None,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
