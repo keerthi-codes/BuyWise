@@ -210,14 +210,19 @@ class PayPalClient:
         currency: str,
         internal_order_number: str,
         paypal_request_id: str,
-        return_url: str = "http://localhost:5500/?paypal_return=true",
-        cancel_url: str = "http://localhost:5500/?paypal_cancel=true",
+        return_url: str | None = None,
+        cancel_url: str | None = None,
         description: str = "AI Shopping Intelligence Demo Checkout",
     ) -> dict[str, Any]:
         """
         Create a PayPal order via POST /v2/checkout/orders.
         Uses exact Decimal amount formatting and stable PayPal-Request-Id idempotency.
         """
+        settings = get_settings()
+        frontend_base = (getattr(settings, "FRONTEND_URL", None) or "http://localhost:5500").strip().rstrip("/")
+        resolved_return_url = (return_url or f"{frontend_base}/?paypal_return=true").strip()
+        resolved_cancel_url = (cancel_url or f"{frontend_base}/?paypal_cancel=true").strip()
+
         url = f"{self.base_url}/v2/checkout/orders"
         amount_str = f"{total_amount:.2f}"
         norm_currency = currency.strip().upper()
@@ -238,8 +243,8 @@ class PayPalClient:
                 "brand_name": "AI Shopping Intelligence",
                 "landing_page": "NO_PREFERENCE",
                 "user_action": "PAY_NOW",
-                "return_url": return_url,
-                "cancel_url": cancel_url,
+                "return_url": resolved_return_url,
+                "cancel_url": resolved_cancel_url,
             },
         }
 

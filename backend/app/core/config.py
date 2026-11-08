@@ -53,6 +53,14 @@ class Settings(BaseSettings):
         default=8000,
         description="Server listen port",
     )
+    FRONTEND_URL: str = Field(
+        default="http://localhost:5500",
+        description="Canonical frontend origin URL (used for CORS and PayPal return/cancel defaults)",
+    )
+    CORS_ORIGINS: str = Field(
+        default="",
+        description="Comma-separated list of allowed CORS origins for production (e.g. 'https://buywise.vercel.app,https://mycustomdomain.com')",
+    )
 
     # Database Settings
     DATABASE_URL: str = Field(
@@ -134,18 +142,25 @@ class Settings(BaseSettings):
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
-    def normalize_sqlite_url(cls, v: str | None) -> str:
+    def normalize_database_url(cls, v: str | None) -> str:
         """
-        Normalize relative SQLite URLs to a stable, absolute path anchored at the repo root.
-        Ensures execution directory does not cause unpredictable database file locations.
+        Normalize database connection URLs:
+        - SQLite relative URLs: converted to stable absolute path anchored at repo root.
+        - PostgreSQL URLs: normalizes 'postgres://' to 'postgresql+psycopg2://' and
+          'postgresql://' without driver to 'postgresql+psycopg2://' for SQLAlchemy 2.0 compatibility.
         """
         if not v:
             return f"sqlite:///{DEFAULT_SQLITE_PATH.as_posix()}"
-        if v.startswith("sqlite:///./"):
-            rel_part = v.replace("sqlite:///./", "")
+        v_str = str(v).strip()
+        if v_str.startswith("sqlite:///./"):
+            rel_part = v_str.replace("sqlite:///./", "")
             abs_path = (REPO_ROOT / rel_part).resolve()
             return f"sqlite:///{abs_path.as_posix()}"
-        return v
+        if v_str.startswith("postgres://"):
+            return "postgresql+psycopg2://" + v_str[len("postgres://"):]
+        if v_str.startswith("postgresql://") and not v_str.startswith("postgresql+"):
+            return "postgresql+psycopg2://" + v_str[len("postgresql://"):]
+        return v_str
 
     @property
     def is_development(self) -> bool:

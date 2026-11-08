@@ -466,8 +466,10 @@ class CheckoutService:
         logger.info("Persisted local PaymentOrder draft: %s [Ref: %s]", order.id, order.internal_order_number)
 
         # 6. Outside DB Transaction: External PayPal Orders v2 Call
-        default_return = "http://localhost:5500/?paypal_return=true"
-        default_cancel = "http://localhost:5500/?paypal_cancel=true"
+        app_settings = get_settings()
+        frontend_base = (getattr(app_settings, "FRONTEND_URL", None) or "http://localhost:5500").strip().rstrip("/")
+        default_return = f"{frontend_base}/?paypal_return=true"
+        default_cancel = f"{frontend_base}/?paypal_cancel=true"
         resolved_return_url = (request.return_url or default_return).strip()
         resolved_cancel_url = (request.cancel_url or default_cancel).strip()
 

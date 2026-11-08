@@ -26,6 +26,10 @@ def build_engine(database_url: str | None = None) -> Engine:
     """
     settings = get_settings()
     url = database_url or settings.DATABASE_URL
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg2://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
     is_sqlite = url.startswith("sqlite")
 
     engine_kwargs: dict[str, Any] = {
@@ -106,7 +110,16 @@ def ensure_schema_compatibility(target_engine: Engine) -> None:
     """
     Ensure existing tables have all required columns without destructive drops.
     Handles non-destructive forward migrations for SQLite development environments.
+    Bypassed safely on PostgreSQL/non-SQLite where schema is managed via Alembic.
     """
+    if target_engine.dialect.name != "sqlite":
+        logger.info(
+            "Schema compatibility PRAGMA check skipped for dialect '%s'; "
+            "schema evolution is governed authoritatively by Alembic in non-SQLite environments.",
+            target_engine.dialect.name,
+        )
+        return
+
     with target_engine.connect() as conn:
         try:
             # Check products table

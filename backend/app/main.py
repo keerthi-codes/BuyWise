@@ -19,7 +19,7 @@ from backend.app.api.mandates import router as mandates_router
 from backend.app.api.assistant import router as assistant_router
 from backend.app.api.checkout import router as checkout_router
 from backend.app.api.auth import router as auth_router
-from backend.app.core.config import get_settings
+from backend.app.core.config import get_settings, Settings
 from backend.app.core.database import engine, Base, ensure_schema_compatibility
 from backend.app.core.errors import register_error_handlers
 from backend.app.core.seed import seed_database
@@ -44,12 +44,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logger.info("Starting %s (v%s) [%s]", settings.APP_NAME, settings.APP_VERSION, settings.ENVIRONMENT)
 
-    # Ensure all tables exist on startup and columns are aligned
-    Base.metadata.create_all(bind=engine)
-    ensure_schema_compatibility(engine)
-
-    # Seed demo catalog if empty (idempotent)
-    seed_database(bind=engine)
+    # Database initialization:
+    # For SQLite (local development/testing), preserve automatic table creation and schema evolution.
+    # For PostgreSQL / production, schema is initialized as a deliberate deployment operation
+    # (e.g. via python -m backend.app.core.init_db) to prevent multi-worker concurrency races.
+    if engine.dialect.name == "sqlite":
+        Base.metadata.create_all(bind=engine)
+        ensure_schema_compatibility(engine)
+        seed_database(bind=engine)
+    else:
+        logger.info(
+            "Production dialect '%s' detected; bypassing automatic in-process create_all in lifespan "
+            "to prevent multi-worker race conditions. Schema is managed via deliberate deployment operations.",
+            engine.dialect.name,
+        )
 
     # Start periodic price tracking background worker
     PriceTracker.start()
@@ -61,6 +69,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Disposing database connection pool...")
     engine.dispose()
     logger.info("Database connection pool disposed.")
+
+
+def resolve_cors_origins(settings: Settings) -> list[str]:
+    """
+    Resolve allowed CORS origins based on environment and settings:
+    - Development / Testing: permits all origins ["*"] to preserve local development and testing.
+    - Production / Staging: strictly uses explicit origins from FRONTEND_URL and CORS_ORIGINS.
+      Never allows wildcard '*' when credentials are permitted in production.
+    """
+    if settings.is_development or settings.is_testing:
+        return ["*"]
+
+    origins: list[str] = []
+    if settings.CORS_ORIGINS:
+        for item in settings.CORS_ORIGINS.split(","):
+            cleaned = item.strip().rstrip("/")
+            if cleaned and cleaned != "*" and cleaned not in origins:
+                origins.append(cleaned)
+
+    if settings.FRONTEND_URL:
+        cleaned = settings.FRONTEND_URL.strip().rstrip("/")
+        if cleaned and cleaned != "*" and cleaned not in origins:
+            origins.append(cleaned)
+
+    if not origins:
+        logger.warning(
+            "CORS: No production origins configured via FRONTEND_URL or CORS_ORIGINS; "
+            "cross-origin browser requests will be blocked."
+        )
+
+    return origins
 
 
 def create_application() -> FastAPI:
@@ -80,7 +119,7 @@ def create_application() -> FastAPI:
     # CORS Middleware (allows browser frontend communication)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.is_development else ["https://yourdomain.com"],
+        allow_origins=resolve_cors_origins(settings),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
