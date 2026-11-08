@@ -15,16 +15,7 @@ export const CONFIG = {
       if (typeof window.__BUYWISE_API_BASE__ === "string" && window.__BUYWISE_API_BASE__.trim()) {
         return window.__BUYWISE_API_BASE__.trim().replace(/\/+$/, "");
       }
-      // 2. HTML meta tag configuration: <meta name="buywise-api-base" content="https://...">
-      try {
-        const metaTag = document.querySelector('meta[name="buywise-api-base"]');
-        if (metaTag && metaTag.content && metaTag.content.trim()) {
-          return metaTag.content.trim().replace(/\/+$/, "");
-        }
-      } catch (e) {
-        // Ignore DOM query failures in non-standard environments
-      }
-      // 3. Optional localStorage runtime override
+      // 2. Optional localStorage runtime override (manual developer override)
       try {
         const stored = localStorage.getItem("buywise_api_base");
         if (stored && stored.trim()) {
@@ -33,15 +24,24 @@ export const CONFIG = {
       } catch (e) {
         // Ignore localStorage restrictions
       }
-      // 4. When served on port 8000 (direct FastAPI static mount), use same-origin relative path
+      // 3. When served on port 8000 (direct FastAPI static mount), use same-origin relative path
       if (window.location.port === "8000") {
         return "";
       }
-      // 5. When served on localhost/127.0.0.1 (e.g., Live Server on port 5500), target local FastAPI
+      // 4. When served on localhost/127.0.0.1 (e.g., Live Server on port 5500), target local FastAPI
       if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
         return `${window.location.protocol}//${window.location.hostname}:8000`;
       }
-      // 6. Deployed domain (e.g. *.vercel.app or custom domain):
+      // 5. HTML meta tag configuration for deployed domains: <meta name="buywise-api-base" content="https://...">
+      try {
+        const metaTag = document.querySelector('meta[name="buywise-api-base"]');
+        if (metaTag && metaTag.content && metaTag.content.trim()) {
+          return metaTag.content.trim().replace(/\/+$/, "");
+        }
+      } catch (e) {
+        // Ignore DOM query failures in non-standard environments
+      }
+      // 6. Deployed domain fallback:
       // Never fall back to 127.0.0.1 or localhost. Default to same-origin relative path for Vercel rewrites/reverse-proxies.
       return "";
     }
